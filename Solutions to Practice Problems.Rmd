@@ -1,0 +1,204 @@
+---
+title: "Solutions to Practice Problems"
+output: word_document
+---
+
+### 1 R Programming Basics
+##### 1.1 Practice: BMI calculation
+** Note: feel free to use fake values for the following problem.  
+Body Mass Index (BMI) can be used to screen for weight categories that may lead to health problems. The formula is BMI = weight(kg)/height(m)^2. BMI ranges are underweight (under 18.5 kg/m2), normal weight (18.5 to 25), overweight (25 to 30), and obese (over 30).  
+a) Define a variable and assign the value of your weight to it. (Note: kg = lb/2.205)  
+b) Define a variable and assign the value of your height to it. (Note: m = inches/39.37)  
+c) Calculate your BMI. Assign the value to a variable.  
+d) Print it with 3 significant digits.  
+e) In 2013, a new formula for BMI that accounts for the distortions of the traditional BMI formula for shorter and taller individuals was proposed by Nick Trefethen, Professor of numerical analysis at Oxford University. (source: [link]( https://people.maths.ox.ac.uk/trefethen/bmi.html)).
+The new formula is BMI = 1.3*weight(kg)/height(m)^2.5. What is your BMI now?  
+f) Print the statement "My BMI is ___." to the console.  
+g) Use a relational operator to check whether your BMI is not underweight? 
+h) Use relational operators AND logical operators to check whether your BMI is in the "normal" range.  
+
+Solution: 
+```{r}
+# 1.1 BMI practice solution
+# a)
+my_weight <- 65 #kg
+# b)
+my_height <- 1.80 #m
+# c) 
+my_BMI <- my_weight/my_height^2
+my_BMI
+# d) 
+print(my_BMI, digits = 3) 
+# e)
+my_new_BMI <- 1.3*my_weight/my_height^2.5
+# f)
+statement <- sprintf("My BMI is %s.", round(my_BMI,digits = 1)) #round to 1 decimal place
+print(statement)
+# g)
+my_BMI >= 18.5 # am i not underweight? T/F
+# h)
+# usually we'd do 18.5 <= my_BMI <= 25 but you can't have multiple relational operators on the same line of code without Boolean ones
+my_BMI >= 18.5 & my_BMI <= 25
+```
+
+### 2 Data structures - Vectors and dataframes 
+##### Practice 2.1 - My family
+You are gathering information about your family members (alternatively, your friends or coworkers). 
+a) Make a vector of their names.  
+b) Who is the first person you wrote down? (i.e. Get the first element)  
+c) Make a vector of their ages (in same order as part a)).  
+d) Make a vector if they're a kid or not (TRUE/FALSE).  
+e) Make a data frame of your family members with column names: Name, Age, Is_Kid.  
+f) Sort their names by alphabetical order. The output should be saved to a data frame variable. (Look this up if you don't know how to!)  
+g) Subset your data frame so only rows of the members that are children shows (do not save as variable).  
+h) Subset your data frame so only rows of the members that are older than 20 years old show (do not save as variable).  
+i) Add 1 to the ages of all your members in one line of code.  
+j) Remove the Is_Kid column.  
+   
+Solution: 
+```{r}
+# a) Make a vector using c() 
+names <- c("Tinky Winky", "Dipsy", "Laa Laa", "Po")
+# b) Use positive indexing
+names[1]
+# c) Make a vector using c()
+ages <- c(21, 10, 10, 2)
+# d) Make a logical vector using c()
+is_kid <- c(F,T,T,T)
+# e) Make a data frame using data.frame()
+family <- data.frame(Name = names, Age = ages, Is_Kid = is_kid)
+family
+# f) https://www.r-bloggers.com/r-sorting-a-data-frame-by-the-contents-of-a-column/
+sorted_family <- family[order(family$Name),]   
+sorted_family
+# g) Logical vector or subset()
+sorted_family[sorted_family$Is_Kid,]
+subset(sorted_family, subset = Is_Kid)
+# h) subset using logical vector
+sorted_family[sorted_family$Age > 20,]
+subset(sorted_family, subset = Age > 20)
+# i) modify the Age column only
+sorted_family$Age <- sorted_family$Age + 1
+# j) Using negative indexing or assigning column to NULL
+sorted_family$Is_Kid <- NULL
+# Or sorted_family <- sorted_family[, - which (colnames(sorted_family) == "Is_Kid")]
+```
+
+### 3 Import, Export and base R Graphs
+### Practice 3.1 American Women
+The "women" data set in R gives the average heights and weights for American women aged 30–39.  
+a) Print the first 15 rows to the console. (Hint: use the "n" argument in head() function)  
+b) Create a folder called "Data Sets" in your current working directory.  
+c) Write the women data frame as a csv file to the Data Sets folder (exclude row names).  
+d) Read this file back into R and assign it to a variable called "women.df".  
+e) Plot a histogram of the heights column.  
+f) Find the mean and standard deviation of heights (Recall: vectors tutorial)  
+g) print the variables from f) in a statement ""The mean and standard deviation of the heights is __ and __" (Hint: use sprintf() or paste() )  
+h) Plot a scatter plot, where x = height and y = weight. Relabel x and y axes to "Height (in)" and "Weight (lbs)" respectively.  
+i) Save f) to a jpeg file.  
+  
+Solution
+```{r}
+data("women")
+# a) Print using head()
+head(women, n = 15)
+# b) Create a folder using dir.create()
+dir.create("Data Sets")
+# c) Write to csv using write.csv()
+write.csv(x = women, file = "Data sets/women.csv", row.names = F)
+# d) Read using read.csv()
+women.df <- read.csv(file = "Data sets/women.csv")
+# e) Plot histogram using hist()
+hist(women.df$height)
+# f) Find mean using mean() and standard deviation using sd()
+mean.hts <- mean(women.df$height)
+sd.hts <- sd(women.df$weight)
+# g) Print
+sprintf("The mean and standard deviation of the heights is %s and %s", mean.hts, sd.hts)
+paste("The mean of the heights is ", mean.hts, " and ", sd.hts, sep = "")
+# h) Plot using plot()
+plot(x=women.df$height, y=women.df$weight, xlab = "Height (in)", ylab = "Weight (lbs)", main = "Avg Heights and Weights for American Women 30-39")
+# i) Save as jpeg
+jpeg(filename = "heights_vs_weights.jpeg")
+plot(x=women.df$height, y=women.df$weight, xlab = "Height (in)", ylab = "Weight (lbs)", main = "Avg Heights and Weights for American Women 30-39")
+dev.off()
+```
+
+### Statistical tests
+### Practice 5.1 American women  
+The "women" data set in R gives the average heights and weights for American women aged 30–39.  
+* Significance level is p<0.05.  
+a) Print the first 10 rows to the console. (Hint: use the "n" argument in head() function)   
+b) What is the data type of the height column? (Hint: use str() or class())  
+c) Are the height and weight variables normally distributed? (Hint: use Shapiro's test for each)  
+d) Should we use t-test or wilcoxin test on this data? Why?  
+e) Compare the heights to an estimated mean of 66.2 using a one-sample t-test. Is there a significant difference in means?  
+f) Compare the first 6 weights recorded (ie. 1 to 6) to the next 6 (ie. 7 to 12) using a t-test. Is there a significant difference in means?  
+  
+Solution
+```{r}
+# Load data (you can still use it without this step)
+data("women")
+# a) Print using head()
+head(women, n = 10)
+
+# b) Use class() to get data type 
+class(women$height) # ANSWER: numeric
+
+# c) use Shapiro's test to test for normality. If p > 0.05, normally distributed
+shapiro.test(women$height) # p-value = 0.7545
+shapiro.test(women$weight) # p-value = 0.6986
+# ANSWER: Yes, since p > 0.05 for both variables, the data is normally distributed
+
+# d) ANSWER: We could use t-tests because parametric statistical tests is used on normally distributed data.
+
+# e) use t.test(), where mu = 66.2
+t.test(women$height, mu = 66.2) # p-value = 0.3163
+# ANSWER: No, since p > 0.05, there is no significant difference, so the mean of heights is close to 66.2.
+
+# f) use t.test() with x,y (two samples)
+t.test(x = women$weight[1:6], y = women$weight[7:12]) # p-value 0.0003556
+# ANSWER: Yes, since p < 0.05, there is a significant difference  
+```
+
+
+### 7 Heatmaps
+### Practice 7.1 Motor trend car road tests (mtcars)
+Fuel consumption and 10 additional aspects (variables) of automobile design tested in 1974 are given in an in-built R dataset called "mtcars". 
+a) Look at the first rows of the data frame (using head())
+b) Look at the structure, are all the data numeric? (use str())
+c) Convert the data frame to a data matrix into a new variable.
+d) Add 1 to all values and apply log2 transformation.
+e) Make a heatmap (using the pheatmap package). 
+  i) Scale by column, 
+  ii) use clustering method "ward", 
+  iii) set cell width to 10, 
+  iv) pick 9 colours from RColorBrewer color palette "RdPu" and make a palette with 250 colors for the heatmap, and
+  v) set the title to "my heatmap" 
+  vi) save to a jpeg file called "mtcars_heatmap"
+  
+  
+Solution
+```{r}
+# a) Use head() 
+head(mtcars)
+# b) Use str() to see the structure
+str(mtcars) # ANSWER: Yes, all variables are numeric
+# c) convert to matrix using as.matrix
+mtcars_mat <- as.matrix(mtcars)
+# d) add 1 and log2
+mtcars_mat <- mtcars_mat + 1
+mtcars_mat <- log2(mtcars_mat)
+# equivalent: mtcars_mat <- log2(mtcars_mat + 1)
+# e) plot heatmap
+library(pheatmap)
+library(RColorBrewer)
+pheatmap(mtcars_mat, #e
+         scale = "column", #i
+         clustering_method = "ward.D", #ii
+         cellwidth = 10, #iii
+         col = colorRampPalette(brewer.pal(9, "RdPu")) (256), #iv
+         main = "my_heatmap", #v
+         filename = "mtcars_heatmap.jpeg" #vi
+         )
+```

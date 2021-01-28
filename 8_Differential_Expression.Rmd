@@ -1,0 +1,329 @@
+---
+title: "Differential Expression"
+author: "Kazeera Aliar"
+date: "13/05/2020"
+output: html_document
+---
+
+Objective: To conduct differential gene expression analysis on a published dataset
+
+- Differential gene expression analysis identifies genes with variable expression between 2+ sample groups
+- Common abbreviations: DG, DE, DGE
+- Many packages in R can be used to facilitate your analysis (many made for microarray but can apply to any omics data), eg. edgeR, limma, DESeq2
+
+```{r}
+# Install required libraries from Bioconductor
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+BiocManager::install("limma")   
+BiocManager::install("edgeR")   
+# Note: whereas install.packages() used to install from CRAN
+
+# Load libraries
+library(limma)
+library(edgeR)
+library(Mus.musculus)
+```
+
+We will follow this tutorial:  https://www.bioconductor.org/packages/devel/workflows/vignettes/RNAseq123/inst/doc/limmaWorkflow.html
+
+Workflow: 
+- read in RNA seq data (gene level read counts) into edgeR list object
+- scaling/transformation
+- quality control (QC) - remove lowly expressed genes 
+- normalising
+- unsupervised clustering
+- differential expression using limma 
+
+## Prepare data
+Data information:
+- GEO accession: GSE63310 (https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE63310)
+- Transcriptome profiling of purified mouse mammary stem, progenitor and mature cell populations
+
+### DGEList
+DGEList objects are a specialized list() structure and has three main elements: 
+   $counts (read counts matrix, rows=features, cols=samples)
+   $samples (sample info data frame)
+   $genes (gene info data frame) 
+
+### a) Make a DGEList object  
+- From multiple files: use readDGE() - see tutorial  
+- From single file/data frame: use DGEList()  
+```{r}
+# Read csv file into data frame (rows = gene id, cols = samples)
+# First column [1] is Entrez IDs = row.names
+count_mat <- read.csv(file = "8-RNA-seq-GSE63310_RAW.csv", row.names = 1, stringsAsFactors = F)
+# Create DGE list object from data frame
+x <- DGEList(counts = count_mat)
+```
+
+### b) Add sample annotations 
+- Expt (biological and technical) that could have an effect on expression levels
+- Examples: cell type (basal, LP and ML), genotype (wild-type, knock-out), phenotype (disease status, sex, age), sample treatment (drug, control) and batch information (dates)
+- Data frame where cols = vectors/factors
+```{r}
+# Look at the first 6 rows of the "samples" element in the DGEList object
+head(x$samples)
+# Add a column to the data frame for group/cell-type
+group <- as.factor(c("LP", "ML", "Basal", "Basal", "ML", "LP", "Basal", "ML", "LP"))
+x$samples$group <- group
+# Add a column for lane
+lane <- as.factor(rep(c("L004","L006","L008"), c(3,4,2)))
+x$samples$lane <- lane
+# See it again
+head(x$samples)
+```
+
+### c) Add gene annotations
+- Convert from gene IDs (Entrez IDs here) to gene symbols
+- use packages such as "Mus.musculus" for mouse (or "Homo.sapiens" for human) or "biomaRt"  
+```{r}
+# Install and load library
+BiocManager::install("Mus.musculus")
+library(Mus.musculus)
+
+# Define Entrez ids (current rownames)
+entrez_ids <- rownames(x)
+# Get gene symbols ("SYMBOL") and chromosome info ("TXCHROM") from "ENTREZID"
+genes <- select(Mus.musculus, keys=entrez_ids, columns=c("SYMBOL", "TXCHROM"), 
+                keytype="ENTREZID")
+head(genes)
+```
+
+- To resolve duplicate gene IDs one could combine all chromosome information from the multi-mapped genes, or select one of the chromosomes to represent the gene with duplicate annotation. 
+- For simplicity, we'll keeeping only the first occurrence of each gene ID.
+```{r}
+# Check if any Entrez IDs are duplicated
+any(duplicated(genes$ENTREZID))
+# Select only rows without duplicated gene IDs
+genes <- genes[!duplicated(genes$ENTREZID),]
+```
+
+Add gene annotations to DGEList object
+```{r}
+x$genes <- genes
+```
+
+## Data pre-processing
+### Transformations from the raw-scale
+- CPM stands for counts per million (cpm)
+- edgeR: cpm(), rpkm() if gene lengths are available
+```{r}
+cpm <- cpm(x)
+lcpm <- cpm(x, log=TRUE)
+```
+
+### Removing genes that are lowly expressed
+- Some genes are unexpressed throughout all samples
+```{r}
+# See how many rows have all zeros
+table(rowSums(x$counts==0)==9)
+```
+
+- genes that not expressed at a biologically meaningful level are best ignored 
+- removing low count genes allows the mean-variance relationship in the data to be estimated with greater reliability and also reduces the number of statistical tests 
+
+```{r}
+# Get a logical vector of which genes are lowly expressed
+keep.exprs <- filterByExpr(x, group=group) # default: the function keeps genes with CPM of 0.2 or more in at least three samples
+# Remove lowly expressed genes
+x <- x[keep.expr, keep.lib.sizes=FALSE]
+dim(x)
+```
+
+## Normalising gene expression distributions
+- Purpose of normalization: to eliminate systematic effects that are not associated with the biological differences of interest.
+-  expression distributions of each sample are similar across the entire expt
+
+- normalisation factors in DGEList$samples are used as a scaling factor
+```{r}
+# Set all normalization factors to unscaled or "1"
+x$samples$norm.factors <- 1
+```
+
+Box plots and density plots show per sample expression distributions
+```{r}
+boxplot(lcpm, las=2, main="count data distribution") #las=2 makes x-axis labels horizontal 
+```
+
+- calcNormFactors() gets us new scaling factors used for normalisation 
+- methods supported: "TMM","TMMwsp","RLE","upperquartile"
+```{r}
+?calcNormFactors
+# trimmed mean of M-values (TMM) 
+x <- calcNormFactors(x, method = "TMM")
+# Get lcpm values
+lcpm_norm <- cpm(x, log=TRUE)
+```
+
+Plot un-normalized and normalized distributions side by side
+```{r}
+# Make colors 
+colors_samples <- RColorBrewer::brewer.pal(ncol(x), "Paired") #ncol(x) is num columns = num samples = num colors
+# Use par to indicate grid set-up (mfrow takes in two values c(num_rows, num_cols))
+par(mfrow=c(1,2))
+# Plot 2 graphs
+boxplot(lcpm, las=2, col=colors_samples, main="Un-normalized")
+boxplot(lcpm_norm, las=2, col=colors_samples, main="Normalized")
+```
+
+### Unsupervised clustering of samples
+- Exploratory plots - e.g. PCA plots, heatmaps, MA (log ratio v mean)
+Read more: https://angus.readthedocs.io/en/2019/diff-ex-and-viz.html#visualization-of-rna-seq-and-differential-expression-results
+
+#### MDS plot
+- Visualize how groups cluster via the multi-dimensional scaling (MDS) plot
+- plotMDS() in limma package
+- PCA is a type of MDS plot
+
+```{r}
+# Make colors 
+colors_group <- group # Equivalent to: x$samples$group
+levels(colors_group) <-  RColorBrewer::brewer.pal(nlevels(colors_group), "Set1")
+colors_group <- as.character(colors_group)
+
+# Make MDS plot by specifying labels and colors
+plotMDS(lcpm, labels=group, col=colors_group)
+title(main="MDS of sample groups")
+```
+
+## Differential expression analysis
+- Creating a design matrix and contrasts
+
+#### Create model matrix
+- Specify experimental design using model.matrix(), where rows are annotated for columns in counts matrix
+- pass an argument with a formula in the format (~0+factor1+...+factorn)
+- Can also use * operator - Read more: https://genomicsclass.github.io/book/pages/expressing_design_formula.html
+```{r}
+# Make model matrix
+design <- model.matrix(~0+group)
+# Replace "group" with "" (ie. remove the word group from the column names)
+colnames(design) <- gsub("group", "", colnames(design))
+# Look at experimental design
+design
+# Compare x$samples[1,] to design[1,]
+```
+#### Create contrasts matrix
+- Contrasts for pairwise comparisons between cell populations are set up in limma using makeContrasts()
+```{r}
+contr.matrix <- makeContrasts(
+   BasalvsLP = Basal - LP, # eg. Compare Basal and LP
+   BasalvsML = Basal - ML, 
+   LPvsML = LP - ML, 
+   levels = colnames(design))
+contr.matrix
+```
+
+### Removing heteroscedasticity from count data
+- Heteroscedasticity = variability of a variable is unequal across the range of values of a second variable that predicts it
+- In RNA-seq count data,  variance is not independent of the mean
+- mean-variance relationship is accommodated using precision weights calculated by the voom function
+
+- When operating on a DGEList-object, voom converts raw counts to log-CPM values by automatically extracting library sizes and normalisation factors from x itself
+```{r}
+v <- voom(x, design, plot=TRUE)
+```
+
+#### Fitting linear models for comparisons of interest
+- Watch for linear models (27 min): https://www.youtube.com/watch?v=nk2CQITm_eo
+
+- Linear modelling in limma is carried out using the lmFit and contrasts.fit functions 
+- use for microarray and RNA-seq data and fit a separate model to the expression values for each gene
+```{r}
+vfit <- lmFit(v, design)
+vfit <- contrasts.fit(vfit, contrasts=contr.matrix)
+```
+
+- Next, empirical Bayes moderation is carried out by borrowing information across all the genes to obtain more precise estimates of gene-wise variability
+- The model’s residual variances are plotted against average expression values in the next figure. It can be seen from this plot that the variance is no longer dependent on the mean expression level
+```{r}
+efit <- eBayes(vfit)
+plotSA(efit, main="Final model: Mean-variance trend")
+```
+
+### Examining the number of differentially expressed (DE) genes
+- use decideTests() to find genes that are DE in multiple comparisons can be extracted using the results from decideTests, where 
+    0 = genes that are not DE
+    1 = up-regulated genes 
+   -1 = down-regulated genes
+
+Default: Significance p < 0.05
+```{r}
+decideTests(efit)
+```
+
+- For a quick look at differential expression levels, the number of significantly up- and down-regulated genes is summarised by summary()
+```{r}
+summary(decideTests(efit))
+```
+
+Specify log fold change (lfc)
+```{r}
+tfit <- treat(vfit, lfc=1)
+dt <- decideTests(tfit)
+summary(dt)
+ # The write.fit function can be used to extract and write results for all three comparisons to a single output file.
+write.fit(tfit, dt, file = "results.txt")
+```
+
+Make a Venn Diagram 
+- both up (1) and down (-1)
+```{r}
+vennDiagram(dt@.Data)
+```
+
+### Examining individual DE genes from top to bottom
+- The top DE genes listed via 
+    - topTreat for results made by treat 
+    - topTable() for results made by eBayes)
+
+- default: genes arranged smallest to largest adjusted p-value
+- The number of top genes displayed can be specified, where n=Inf includes all genes. 
+```{r}
+head(tfit$coefficients)
+# use topTreat to get top genes - coef = which comparison, n = number of genes
+topgenes <- topTreat(tfit,coef = 1, n=Inf)
+head(topgenes)
+# Get genes names of top 10 genes
+topgenes$SYMBOL[1:10]
+```
+
+Note: to only look at down-regulated genes OR upregulated subset tfit to > 0 or < 0
+
+### DE plots 
+#### MD plot
+- log-FCs from the linear model fit against the average log-CPM values
+- DE genes highlighted
+```{r}
+# Get column names
+colnames(tfit)
+# Specify comparison
+comparison <- colnames(tfit)[1]
+# Plot 
+plotMD(tfit, column=comparison, status=dt[,comparison], main=comparison)
+```
+
+### Volcano plot
+- note: limma package only highlights top genes from both up AND down
+```{r}
+volcanoplot(tfit, names = tfit$genes$SYMBOL, coef = 1, highlight = 10, hl.col = "blue")
+```
+
+#### Heatmap
+```{r}
+# Get top 2000 genes (up or down)
+topgenes <- topTreat(tfit, n=2000)
+# Create matrix
+mat <- lcpm[topgenes$ENTREZID, ]
+# Create annotation column (sample info)
+ann_col <- data.frame(CellType = group)
+rownames(ann_col) <- colnames(x)
+# Creat heatmap
+library(pheatmap)
+library(RColorBrewer)
+pheatmap(mat, scale = "row",
+         annotation_col = ann_col,
+         show_rownames = F, 
+         col = colorRampPalette(brewer.pal(11,"RdYlBu"))(250),
+         title = "Top 2000 DE genes across all samples")
+```
